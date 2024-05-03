@@ -48,9 +48,13 @@ if [[ "${GPU_MODE}" == "vgpu" ]]; then
 		-n "${TEST_NAMESPACE}"
 fi
 
+set -x
+
 # Run the helm install command
 ${HELM} install ${PROJECT_DIR}/deployments/gpu-operator --generate-name \
 	-n "${TEST_NAMESPACE}" \
 	${OPERATOR_OPTIONS} \
 	${TOOLKIT_CONTAINER_OPTIONS} \
 		--wait
+
+set +x

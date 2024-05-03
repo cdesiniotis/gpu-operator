@@ -117,3 +117,60 @@ jobs:
         run: |
           echo "${VERSION}"
           make build-${{ matrix.dist }}
+
+  e2e-tests-containerd:
+    needs: [build-gpu-operator, build-gpu-operator-validator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        name: Check out code
+      - name: Set up Holodeck
+        uses: NVIDIA/holodeck@main
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_ssh_key: ${{ secrets.AWS_SSH_KEY }}
+          holodeck_config: "tests/holodeck.yaml"
+      - name: Get public dns name
+        id: get_public_dns_name
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq '.status.properties[] | select(.name == "public-dns-name") | .value' /github/workspace/.cache/holodeck.yaml
+      - name: Calculate test vars
+        id: vars
+        run: |
+          COMMIT_SHORT_SHA=${GITHUB_SHA:0:8}
+          echo "COMMIT_SHORT_SHA=${GITHUB_SHA:0:8}" >> $GITHUB_ENV
+          LOWERCASE_REPO_OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | awk '{print tolower($0)}')
+          echo "LOWERCASE_REPO_OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | awk '{print tolower($0)}')" >> $GITHUB_ENV
+         
+          echo "OPERATOR_VERSION=${COMMIT_SHORT_SHA}-ubi8" >> $GITHUB_ENV 
+          echo "OPERATOR_IMAGE=ghcr.io/${LOWERCASE_REPO_OWNER}/gpu-operator" >> $GITHUB_ENV
+          echo "VALIDATOR_VERSION=${COMMIT_SHORT_SHA}-ubi8" >> $GITHUB_ENV
+          echo "VALIDATOR_IMAGE=ghcr.io/${LOWERCASE_REPO_OWNER}/gpu-operator/gpu-operator-validator"  >> $GITHUB_ENV
+          
+          echo "instance_hostname=ubuntu@${{ steps.get_public_dns_name.outputs.result }}" >> $GITHUB_ENV
+          echo "private_key=${{ github.workspace }}/key.pem" >> $GITHUB_ENV
+      - name: Run e2e tests
+        env:
+          #OPERATOR_VERSION: ${COMMIT_SHORT_SHA}-ubi8
+          #OPERATOR_IMAGE: ghcr.io/${LOWERCASE_REPO_OWNER}/gpu-operator
+          #VALIDATOR_VERSION: ${COMMIT_SHORT_SHA}-ubi8
+          #VALIDATOR_IMAGE: ghcr.io/${LOWERCASE_REPO_OWNER}/gpu-operator/gpu-operator-validator
+          GPU_PRODUCT_NAME: "Tesla-T4"
+          SKIP_LAUNCH: "true"
+          CONTAINER_RUNTIME: "containerd"
+          TEST_CASE: "./tests/cases/defaults.sh"
+        run: |
+          echo "${{ secrets.AWS_SSH_KEY }}" > ${private_key} && chmod 400 ${private_key}
+          echo "${OPERATOR_IMAGE}:${OPERATOR_VERSION}\n${VALIDATOR_IMAGE}:${VALIDATOR_VERSION}\n${GPU_PRODUCT_NAME}\n${TEST_CASE}"
+          ./tests/ci-run-e2e.sh ${OPERATOR_IMAGE} ${OPERATOR_VERSION} ${VALIDATOR_IMAGE} ${VALIDATOR_VERSION} ${GPU_PRODUCT_NAME} ${TEST_CASE} || rc=$?
+          ./tests/scripts/pull.sh /tmp/logs logs
+          exit $rc
+      - name: Archive test logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-logs
+          path: ./logs/
+          retention-days: 15
