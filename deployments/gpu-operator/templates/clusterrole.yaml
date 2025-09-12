@@ -50,6 +50,31 @@ rules:
   - patch
   - delete
 - apiGroups:
+    - rbac.authorization.k8s.io
+  resources:
+    - roles
+    - rolebindings
+  verbs:
+    - create
+    - get
+    - list
+    - watch
+    - update
+    - patch
+    - delete
+- apiGroups:
+    - ""
+  resources:
+    - serviceaccounts
+  verbs:
+    - create
+    - get
+    - list
+    - watch
+    - update
+    - patch
+    - delete
+- apiGroups:
   - ""
   resources:
   - nodes

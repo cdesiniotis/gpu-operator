@@ -7,19 +7,6 @@ metadata:
     app.kubernetes.io/component: "gpu-operator"
 rules:
 - apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
-  - roles
-  - rolebindings
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-  - update
-  - patch
-  - delete
-- apiGroups:
   - apps
   resources:
   - controllerrevisions

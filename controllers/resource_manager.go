@@ -47,7 +47,7 @@ type assetsFromFile []byte
 // Resources indicates resources managed by GPU operator
 type Resources struct {
 	ServiceAccounts            []corev1.ServiceAccount
-	Role                       rbacv1.Role
+	Roles                      []rbacv1.Role
 	RoleBindings               []rbacv1.RoleBinding
 	ClusterRoles               []rbacv1.ClusterRole
 	ClusterRoleBindings        []rbacv1.ClusterRoleBinding
@@ -107,6 +107,7 @@ func addResourcesControls(n *ClusterPolicyController, path string) (Resources, c
 
 	n.logger.Info("Getting assets from: ", "path:", path)
 	manifests := getAssetsFrom(n, path, n.openshift)
+	stateName := filepath.Base(path)
 
 	s := json.NewSerializerWithOptions(json.DefaultMetaFactory, scheme.Scheme,
 		scheme.Scheme, json.SerializerOptions{Yaml: true, Pretty: false, Strict: false})
@@ -127,12 +128,25 @@ func addResourcesControls(n *ClusterPolicyController, path string) (Resources, c
 			res.ServiceAccounts = append(res.ServiceAccounts, serviceAccount)
 			// only add the ctrl function when the first ServiceAccount is added for this component
 			if len(res.ServiceAccounts) == 1 {
-				ctrl = append(ctrl, ServiceAccounts)
+				if stateName == "state-dra-driver" {
+					ctrl = append(ctrl, DRADriverServiceAccounts)
+				} else {
+					ctrl = append(ctrl, ServiceAccounts)
+				}
 			}
 		case "Role":
-			_, _, err := s.Decode(m, nil, &res.Role)
+			role := rbacv1.Role{}
+			_, _, err := s.Decode(m, nil, &role)
 			panicIfError(err)
-			ctrl = append(ctrl, Role)
+			res.Roles = append(res.Roles, role)
+			// only add the ctrl function when the first Role is added for this component
+			if len(res.Roles) == 1 {
+				if stateName == "state-dra-driver" {
+					ctrl = append(ctrl, DRADriverRoles)
+				} else {
+					ctrl = append(ctrl, Roles)
+				}
+			}
 		case "RoleBinding":
 			roleBinding := rbacv1.RoleBinding{}
 			_, _, err := s.Decode(m, nil, &roleBinding)
@@ -140,7 +154,11 @@ func addResourcesControls(n *ClusterPolicyController, path string) (Resources, c
 			res.RoleBindings = append(res.RoleBindings, roleBinding)
 			// only add the ctrl function when the first RoleBinding is added for this component
 			if len(res.RoleBindings) == 1 {
-				ctrl = append(ctrl, RoleBindings)
+				if stateName == "state-dra-driver" {
+					ctrl = append(ctrl, DRADriverRoleBindings)
+				} else {
+					ctrl = append(ctrl, RoleBindings)
+				}
 			}
 		case "ClusterRole":
 			clusterRole := rbacv1.ClusterRole{}
@@ -158,7 +176,11 @@ func addResourcesControls(n *ClusterPolicyController, path string) (Resources, c
 			res.ClusterRoleBindings = append(res.ClusterRoleBindings, clusterRoleBinding)
 			// only add the ctrl function when the first ClusterRoleBinding is added for this component
 			if len(res.ClusterRoleBindings) == 1 {
-				ctrl = append(ctrl, ClusterRoleBindings)
+				if stateName == "state-dra-driver" {
+					ctrl = append(ctrl, DRADriverClusterRoleBindings)
+				} else {
+					ctrl = append(ctrl, ClusterRoleBindings)
+				}
 			}
 		case "ConfigMap":
 			cm := corev1.ConfigMap{}

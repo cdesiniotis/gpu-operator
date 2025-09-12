@@ -304,11 +304,11 @@ var SubscriptionPathMap = map[string](MountPathToVolumeSource){
 type controlFunc []func(n ClusterPolicyController) (gpuv1.State, error)
 
 // createServiceAccount creates a ServiceAccount resource
-func createServiceAccount(n ClusterPolicyController, idx int) (gpuv1.State, error) {
+func createServiceAccount(n ClusterPolicyController, idx int, namespace string) (gpuv1.State, error) {
 	ctx := n.ctx
 	state := n.idx
 	obj := n.resources[state].ServiceAccounts[idx].DeepCopy()
-	obj.Namespace = n.operatorNamespace
+	obj.Namespace = namespace
 
 	logger := n.logger.WithValues("ServiceAccount", obj.Name, "Namespace", obj.Namespace)
 
@@ -343,7 +343,7 @@ func ServiceAccounts(n ClusterPolicyController) (gpuv1.State, error) {
 	status := gpuv1.Ready
 	state := n.idx
 	for i := range n.resources[state].ServiceAccounts {
-		stat, err := createServiceAccount(n, i)
+		stat, err := createServiceAccount(n, i, n.operatorNamespace)
 		if err != nil {
 			return stat, err
 		}
@@ -354,12 +354,12 @@ func ServiceAccounts(n ClusterPolicyController) (gpuv1.State, error) {
 	return status, nil
 }
 
-// Role creates Role resource
-func Role(n ClusterPolicyController) (gpuv1.State, error) {
+// createRole creates a Role resource
+func createRole(n ClusterPolicyController, idx int, namespace string) (gpuv1.State, error) {
 	ctx := n.ctx
 	state := n.idx
-	obj := n.resources[state].Role.DeepCopy()
-	obj.Namespace = n.operatorNamespace
+	obj := n.resources[state].Roles[idx].DeepCopy()
+	obj.Namespace = namespace
 
 	logger := n.logger.WithValues("Role", obj.Name, "Namespace", obj.Namespace)
 
@@ -395,12 +395,28 @@ func Role(n ClusterPolicyController) (gpuv1.State, error) {
 	return gpuv1.Ready, nil
 }
 
-// createRoleBinding creates a RoleBinding resource
-func createRoleBinding(n ClusterPolicyController, idx int) (gpuv1.State, error) {
+// Roles creates onr or more Role resources
+func Roles(n ClusterPolicyController) (gpuv1.State, error) {
+	status := gpuv1.Ready
+	state := n.idx
+	for i := range n.resources[state].Roles {
+		stat, err := createRole(n, i, n.operatorNamespace)
+		if err != nil {
+			return stat, err
+		}
+		if stat == gpuv1.NotReady {
+			status = gpuv1.NotReady
+		}
+	}
+	return status, nil
+}
+
+// createRoleBinding creates a RoleBinding resource.
+func createRoleBinding(n ClusterPolicyController, idx int, namespace string, serviceAccountNamespace string) (gpuv1.State, error) {
 	ctx := n.ctx
 	state := n.idx
 	obj := n.resources[state].RoleBindings[idx].DeepCopy()
-	obj.Namespace = n.operatorNamespace
+	obj.Namespace = namespace
 
 	logger := n.logger.WithValues("RoleBinding", obj.Name, "Namespace", obj.Namespace)
 
@@ -415,7 +431,7 @@ func createRoleBinding(n ClusterPolicyController, idx int) (gpuv1.State, error) 
 	}
 
 	for idx := range obj.Subjects {
-		obj.Subjects[idx].Namespace = n.operatorNamespace
+		obj.Subjects[idx].Namespace = serviceAccountNamespace
 	}
 
 	if err := controllerutil.SetControllerReference(n.singleton, obj, n.scheme); err != nil {
@@ -445,7 +461,7 @@ func RoleBindings(n ClusterPolicyController) (gpuv1.State, error) {
 	status := gpuv1.Ready
 	state := n.idx
 	for i := range n.resources[state].RoleBindings {
-		stat, err := createRoleBinding(n, i)
+		stat, err := createRoleBinding(n, i, n.operatorNamespace, n.operatorNamespace)
 		if err != nil {
 			return stat, err
 		}
@@ -461,9 +477,8 @@ func createClusterRole(n ClusterPolicyController, idx int) (gpuv1.State, error) 
 	ctx := n.ctx
 	state := n.idx
 	obj := n.resources[state].ClusterRoles[idx].DeepCopy()
-	obj.Namespace = n.operatorNamespace
 
-	logger := n.logger.WithValues("ClusterRole", obj.Name, "Namespace", obj.Namespace)
+	logger := n.logger.WithValues("ClusterRole", obj.Name)
 
 	// Check if state is disabled and cleanup resource if exists
 	if !n.isStateEnabled(n.stateNames[n.idx]) {
@@ -513,14 +528,18 @@ func ClusterRoles(n ClusterPolicyController) (gpuv1.State, error) {
 	return status, nil
 }
 
-// createClusterRoleBinding creates a ClusterRoleBinding resource
-func createClusterRoleBinding(n ClusterPolicyController, idx int) (gpuv1.State, error) {
+// createClusterRoleBinding creates a ClusterRoleBinding resource. The namespace
+// passed as input determines what namespace the service account(s) resides in.
+func createClusterRoleBinding(n ClusterPolicyController, idx int, namespace string, appendNamespaceToName bool) (gpuv1.State, error) {
 	ctx := n.ctx
 	state := n.idx
 	obj := n.resources[state].ClusterRoleBindings[idx].DeepCopy()
-	obj.Namespace = n.operatorNamespace
 
-	logger := n.logger.WithValues("ClusterRoleBinding", obj.Name, "Namespace", obj.Namespace)
+	if appendNamespaceToName {
+		obj.Name = obj.Name + "-" + namespace
+	}
+
+	logger := n.logger.WithValues("ClusterRoleBinding", obj.Name)
 
 	// Check if state is disabled and cleanup resource if exists
 	if !n.isStateEnabled(n.stateNames[n.idx]) {
@@ -533,7 +552,7 @@ func createClusterRoleBinding(n ClusterPolicyController, idx int) (gpuv1.State, 
 	}
 
 	for idx := range obj.Subjects {
-		obj.Subjects[idx].Namespace = n.operatorNamespace
+		obj.Subjects[idx].Namespace = namespace
 	}
 
 	if err := controllerutil.SetControllerReference(n.singleton, obj, n.scheme); err != nil {
@@ -563,7 +582,7 @@ func ClusterRoleBindings(n ClusterPolicyController) (gpuv1.State, error) {
 	status := gpuv1.Ready
 	state := n.idx
 	for i := range n.resources[state].ClusterRoleBindings {
-		stat, err := createClusterRoleBinding(n, i)
+		stat, err := createClusterRoleBinding(n, i, n.operatorNamespace, false)
 		if err != nil {
 			return stat, err
 		}
