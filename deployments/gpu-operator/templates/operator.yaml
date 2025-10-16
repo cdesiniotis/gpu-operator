@@ -6,6 +6,8 @@ metadata:
     {{- include "gpu-operator.labels" . | nindent 4 }}
     app.kubernetes.io/component: "gpu-operator"
     nvidia.com/gpu-driver-upgrade-drain.skip: "true"
+  finalizers:
+    - nvidia.com/gpu-operator-cleanup
 spec:
   replicas: 1
   selector:

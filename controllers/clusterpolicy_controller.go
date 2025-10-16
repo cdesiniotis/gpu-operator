@@ -51,6 +51,7 @@ const (
 	minDelayCR                      = 100 * time.Millisecond
 	maxDelayCR                      = 3 * time.Second
 	clusterPolicyControllerIndexKey = "metadata.nvidia.clusterpolicy.controller"
+	finalizerName                   = "nvidia.com/gpu-operator-cleanup"
 )
 
 // blank assignment to verify that ReconcileClusterPolicy implements reconcile.Reconciler
@@ -82,6 +83,25 @@ type ClusterPolicyReconciler struct {
 // +kubebuilder:rbac:groups=image.openshift.io,resources=imagestreams,verbs=get;list;watch
 // +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;create;update;watch;delete
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
+
+func removeString(list []string, s string) []string {
+	var result []string
+	for _, item := range list {
+		if item != s {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func containsString(list []string, s string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -115,6 +135,37 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			r.Log.V(consts.LogLevelDebug).Error(nil, condErr.Error())
 		}
 		return reconcile.Result{}, err
+	}
+
+	if !containsString(instance.Finalizers, finalizerName) {
+		r.Log.Info("Adding finalizer to ClusterPolicy object")
+		instance.Finalizers = append(instance.Finalizers, finalizerName)
+		if err := r.Client.Update(ctx, instance); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to add finalizer to ClusterPolicy object: %v", err)
+		}
+	}
+
+	if instance.DeletionTimestamp != nil {
+		r.Log.Info("ClusterPolicy object marked for deletion!")
+		r.Log.Info("removing finalizer from ClusterPolicy")
+		instance.Finalizers = removeString(instance.Finalizers, finalizerName)
+		if err := r.Update(ctx, instance); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to remove finalizer from ClusterPolicy object %v", err)
+		}
+
+		deployment := &appsv1.Deployment{}
+		err = r.Client.Get(ctx, client.ObjectKey{Name: "gpu-operator", Namespace: r.Namespace}, deployment)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to find gpu-operator deployment: %v", err)
+		}
+		if deployment.DeletionTimestamp != nil {
+			r.Log.Info("gpu-operator deployment marked for deletion")
+			r.Log.Info("removing finalizer from gpu-operator deployment")
+			deployment.Finalizers = removeString(deployment.Finalizers, finalizerName)
+			if err := r.Update(ctx, deployment); err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to remove finalizer from gpu-operator deployment %v", err)
+			}
+		}
 	}
 
 	// TODO: Handle deletion of the main ClusterPolicy and cycle to the next one.
