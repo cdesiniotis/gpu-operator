@@ -18,5 +18,5 @@ jobs:
           configurationFile: .github/renovate.json
         env:
           RENOVATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RENOVATE_REPOSITORIES: '["NVIDIA/gpu-operator"]'
+          RENOVATE_REPOSITORIES: '["cdesiniotis/gpu-operator"]'
           RENOVATE_ONBOARDING: false
